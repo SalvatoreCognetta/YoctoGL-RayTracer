@@ -1,7 +1,0 @@
-[
-{
-  "directory": "/home/salvatore/Documenti/ComputerGraphics/01_raytrace_out/build",
-  "command": "/usr/bin/clang++-9    -g   -o CMakeFiles/HomeWork1.dir/main.cpp.o -c /home/salvatore/Documenti/ComputerGraphics/01_raytrace_out/main.cpp",
-  "file": "/home/salvatore/Documenti/ComputerGraphics/01_raytrace_out/main.cpp"
-}
-]
