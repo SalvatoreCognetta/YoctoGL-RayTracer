@@ -198,7 +198,7 @@ struct trace_params {
   int             bounces    = 4;
   float           clamp      = 100000;
   uint64_t        seed       = default_seed;
-  bool            noparallel = false;
+  bool            noparallel = true;
   int             pratio     = 8;
 };
 
