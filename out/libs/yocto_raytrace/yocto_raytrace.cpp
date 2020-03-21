@@ -587,7 +587,7 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
   // compute indirect illumination
   // transmission -> polished dielectric
   // metallic && !roughness -> polished metal
-  // metallic &&  roughness -> rough metal
+  // metallic &&  roughness -> rough metal please update roughness as roughness = roughness * roughness;
   // specular -> rough plastic
   // else -> diffuse
 
@@ -635,11 +635,13 @@ static vec4f trace_color(const rtr::scene* scene, const ray3f& ray,
     int bounce, rng_state& rng, const trace_params& params) {
   // YOUR CODE GOES HERE
   // intersect next point
-
+  auto intersection = intersect_scene_bvh(scene, ray);
+  if(!intersection.hit)
+    return math::zero4f;
   // prepare shading point
-
+  auto object = scene->objects[intersection.object];
   // return color
-  return {zero3f, 1};
+  return {object->material->color, 1};
 }
 
 // Trace a single ray from the camera using the given algorithm.
@@ -731,39 +733,46 @@ inline void parallel_for(
  * 
 **/
 
-// Progressively compute an image by calling trace_samples multiple times.
-void trace_samples(rtr::state* state, const rtr::scene* scene,
+void loop_over_pixel(rtr::state* state, const rtr::scene* scene,
     const rtr::camera* camera, const trace_params& params) {
-  // get current shader
+      // get current shader
   auto shader = get_trace_shader_func(params);
 
   auto img = state->render.size();
+  for (auto j : common::range(img.y)) {
+    for (auto i : common::range(img.x)) {
+      auto index = vec2i{i,j};
+      // get pixel uv from rng
+      auto puv = math::rand2f(state->pixels[index].rng);
+      auto uv = (vec2f{(float)i,(float)j} +  puv) / vec2f(img);
+      // get camera ray
+      // auto ray = camera_ray(camera->frame, camera->lens, camera->film, uv);
+      auto ray = eval_camera(camera, uv);
+      // call shader
+      auto shaded = shader(scene, ray, 0, state->pixels[index].rng, params);
+      // clamp to max value
+      shaded = clamp(shaded, 0.f, params.clamp);
+      // update state accumulation, samples and render
+      state->pixels[index].accumulated += shaded;
+      state->pixels[index].samples     += 1;
+      state->render[index] = state->pixels[index].accumulated / state->pixels[index].samples;
+    }
+  }
+}
+
+// Progressively compute an image by calling trace_samples multiple times.
+void trace_samples(rtr::state* state, const rtr::scene* scene,
+    const rtr::camera* camera, const trace_params& params) {
+  
   // check if we run in parallel or not
   if (params.noparallel) {
     // loop over image pixels   
-    for (auto j : common::range(img.y)) {
-      for (auto i : common::range(img.x)) {
-        // get pixel uv from rng
-        auto puv = math::rand2f(state->pixels[i*img.x+j].rng);
-        auto uv = (vec2f{(float)i,(float)j} +  puv) / vec2f(img);
-        // get camera ray
-        auto ray = eval_camera(camera, uv);
-        // call shader
-        // static vec4f trace_color(const rtr::scene* scene, const ray3f& ray, 
-        //   int bounce, rng_state& rng, const trace_params& params) 
-        auto x = shader(scene, ray, 4, state->pixels[i*img.x+j].rng, params);
-        // clamp to max value
-        // update state accumulation, samples and render
-        // if (x > params.clamp)
-          //clamp color
-
-      }
-    }
+    loop_over_pixel(state, scene, camera, params);
   } else {
     parallel_for(
-        state->render.size(), [state, scene, camera, &params](const vec2i& ij) {
-          // copy here the body of the above loop
-        });
+      state->render.size(), [state, scene, camera, &params](const vec2i& ij) {
+        loop_over_pixel(state, scene, camera, params);
+      });
   }
 }
 
