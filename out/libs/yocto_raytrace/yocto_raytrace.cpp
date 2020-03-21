@@ -175,7 +175,10 @@ static vec3f eval_normal(
     const rtr::shape* shape, int element, const vec2f& uv) {
   if (shape->normals.empty()) return eval_element_normal(shape, element);
   // YOUR CODE GOES HERE
-  return eval_element_normal(shape, element);
+  auto t = shape->triangles[element];
+  return normalize(interpolate_triangle(
+    shape->normals[t.x], shape->normals[t.y],
+    shape->normals[t.z], uv));
 }
 
 // Eval texcoord
@@ -612,12 +615,17 @@ static vec4f trace_eyelight(const rtr::scene* scene, const ray3f& ray,
 static vec4f trace_normal(const rtr::scene* scene, const ray3f& ray, 
     int bounce, rng_state& rng, const trace_params& params) {
   // YOUR CODE GOES HERE
+
   // intersect next point
-
+  auto intersection = intersect_scene_bvh(scene, ray);
+  if(!intersection.hit)
+    return {zero3f, 1};
   // prepare shading point
-
-  // return normal as color
-  return {zero3f, 1};
+  auto object = scene->objects[intersection.object];
+  auto normal = transform_direction(object->frame,
+  eval_normal(object->shape, intersection.element, intersection.uv));
+  // return normal as color  
+  return {normal * 0.5 + 0.5, 1};
 }
 
 static vec4f trace_texcoord(const rtr::scene* scene, const ray3f& ray,
@@ -637,7 +645,7 @@ static vec4f trace_color(const rtr::scene* scene, const ray3f& ray,
   // intersect next point
   auto intersection = intersect_scene_bvh(scene, ray);
   if(!intersection.hit)
-    return math::zero4f;
+    return {zero3f, 1};
   // prepare shading point
   auto object = scene->objects[intersection.object];
   // return color
@@ -744,7 +752,7 @@ void loop_over_pixel(rtr::state* state, const rtr::scene* scene,
       auto index = vec2i{i,j};
       // get pixel uv from rng
       auto puv = math::rand2f(state->pixels[index].rng);
-      auto uv = (vec2f{(float)i,(float)j} +  puv) / vec2f(img);
+      auto uv = (vec2f{index} +  puv) / vec2f(img);
       // get camera ray
       // auto ray = camera_ray(camera->frame, camera->lens, camera->film, uv);
       auto ray = eval_camera(camera, uv);
