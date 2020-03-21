@@ -139,8 +139,8 @@ static float eval_texturef(const rtr::texture* texture, const vec2f& uv,
 // the lens coordinates luv.
 static ray3f eval_camera(const rtr::camera* camera, const vec2f& image_uv) {
   // YOUR CODE GOES HERE
-  auto q = vec3f{camera-> film.x * (0.5 -image_uv.x), 
-      camera->film.y *(image_uv.y - 0.5), camera->lens};
+  auto q = vec3f{camera-> film.x * (0.5f -image_uv.x), 
+      camera->film.y *(image_uv.y - 0.5f), camera->lens};
   auto e = vec3f{0}; // setting e to zero because we are creating the origin
   auto d = normalize(-q - e);
   // evaluate the camera ray as per slides
@@ -609,8 +609,8 @@ static vec4f trace_eyelight(const rtr::scene* scene, const ray3f& ray,
   return {zero3f, 1};
 }
 
-static vec4f trace_normal(const rtr::scene* scene, const ray3f& ray, int bounce,
-    rng_state& rng, const trace_params& params) {
+static vec4f trace_normal(const rtr::scene* scene, const ray3f& ray, 
+    int bounce, rng_state& rng, const trace_params& params) {
   // YOUR CODE GOES HERE
   // intersect next point
 
@@ -631,8 +631,8 @@ static vec4f trace_texcoord(const rtr::scene* scene, const ray3f& ray,
   return {0, 0, 0, 1};
 }
 
-static vec4f trace_color(const rtr::scene* scene, const ray3f& ray, int bounce,
-    rng_state& rng, const trace_params& params) {
+static vec4f trace_color(const rtr::scene* scene, const ray3f& ray, 
+    int bounce, rng_state& rng, const trace_params& params) {
   // YOUR CODE GOES HERE
   // intersect next point
 
@@ -740,25 +740,25 @@ void trace_samples(rtr::state* state, const rtr::scene* scene,
   auto img = state->render.size();
   // check if we run in parallel or not
   if (params.noparallel) {
-    // loop over image pixels
+    // loop over image pixels   
+    for (auto j : common::range(img.y)) {
+      for (auto i : common::range(img.x)) {
         // get pixel uv from rng
+        auto puv = math::rand2f(state->pixels[i*img.x+j].rng);
+        auto uv = (vec2f{(float)i,(float)j} +  puv) / vec2f(img);
         // get camera ray
+        auto ray = eval_camera(camera, uv);
         // call shader
+        // static vec4f trace_color(const rtr::scene* scene, const ray3f& ray, 
+        //   int bounce, rng_state& rng, const trace_params& params) 
+        auto x = shader(scene, ray, 4, state->pixels[i*img.x+j].rng, params);
         // clamp to max value
         // update state accumulation, samples and render
-                
-        // for (auto s : range(ns)) {} //there is only 1 sample
-        for (auto j : common::range(img.y)) {
-          for (auto i : common::range(img.x)) {
-            auto puv = math::rand2f(state->pixels[i*img.x+j].rng);
-            auto uv = (vec2f{(float)i,(float)j} +  puv) / vec2f(img);
-            auto ray = eval_camera(camera, uv);
-            auto x = shader(scene, ray, state->pixels[i*img.x+j].rng[i,j]);
-            // if (x > params.clamp)
-              //clamp color
+        // if (x > params.clamp)
+          //clamp color
 
-          }
-        }
+      }
+    }
   } else {
     parallel_for(
         state->render.size(), [state, scene, camera, &params](const vec2i& ij) {
