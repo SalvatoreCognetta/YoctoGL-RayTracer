@@ -186,7 +186,26 @@ static vec2f eval_texcoord(
     const rtr::shape* shape, int element, const vec2f& uv) {
   if (shape->texcoords.empty()) return uv;
   // YOUR CODE GOES HERE
-  return uv;
+
+  // auto u = 0.f;
+  // auto v = 0.f;
+  // for (auto tex_coord : shape->texcoords) {
+  //   auto w_x = abs(tex_coord.x - uv.x);
+  //   auto w_y = abs(tex_coord.y - uv.y);
+  //   // auto w = sqrt( pow((tex_coord.x - uv.x),2) + pow((tex_coord.y - uv.y),2));
+  //   u += fmod((w_x * tex_coord.x),1);
+  //   v += fmod((w_y * tex_coord.y),1);
+  // }  
+  // return {u,v};
+
+  // auto t = shape->texcoords[element];
+  auto t = shape->triangles[element];
+  auto ret = interpolate_triangle(
+    shape->texcoords[t.x], shape->texcoords[t.y], shape->texcoords[t.z], uv);
+
+  ret = {fmod(ret.x, 1), fmod(ret.y, 1)};
+  return ret;
+
 }
 
 // Evaluate all environment color.
@@ -623,7 +642,7 @@ static vec4f trace_normal(const rtr::scene* scene, const ray3f& ray,
   // prepare shading point
   auto object = scene->objects[intersection.object];
   auto normal = transform_direction(object->frame,
-  eval_normal(object->shape, intersection.element, intersection.uv));
+    eval_normal(object->shape, intersection.element, intersection.uv));
   // return normal as color  
   return {normal * 0.5 + 0.5, 1};
 }
@@ -632,11 +651,15 @@ static vec4f trace_texcoord(const rtr::scene* scene, const ray3f& ray,
     int bounce, rng_state& rng, const trace_params& params) {
   // YOUR CODE GOES HERE
   // intersect next point
-
+  auto intersection = intersect_scene_bvh(scene, ray);
+  if(!intersection.hit)
+    return {zero3f, 1};
   // prepare shading point
-
+  auto object = scene->objects[intersection.object];
+  vec3f tex_coord = {eval_texcoord(object->shape, intersection.element, intersection.uv),0};
+  // auto normal = transform_direction(object->frame,tex_coord);
   // return texcoord in xy
-  return {0, 0, 0, 1};
+  return {tex_coord, 1};
 }
 
 static vec4f trace_color(const rtr::scene* scene, const ray3f& ray, 
