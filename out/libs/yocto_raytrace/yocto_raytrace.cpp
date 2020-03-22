@@ -186,19 +186,6 @@ static vec2f eval_texcoord(
     const rtr::shape* shape, int element, const vec2f& uv) {
   if (shape->texcoords.empty()) return uv;
   // YOUR CODE GOES HERE
-
-  // auto u = 0.f;
-  // auto v = 0.f;
-  // for (auto tex_coord : shape->texcoords) {
-  //   auto w_x = abs(tex_coord.x - uv.x);
-  //   auto w_y = abs(tex_coord.y - uv.y);
-  //   // auto w = sqrt( pow((tex_coord.x - uv.x),2) + pow((tex_coord.y - uv.y),2));
-  //   u += fmod((w_x * tex_coord.x),1);
-  //   v += fmod((w_y * tex_coord.y),1);
-  // }  
-  // return {u,v};
-
-  // auto t = shape->texcoords[element];
   auto t = shape->triangles[element];
   auto ret = interpolate_triangle(
     shape->texcoords[t.x], shape->texcoords[t.y], shape->texcoords[t.z], uv);
@@ -621,14 +608,18 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
 static vec4f trace_eyelight(const rtr::scene* scene, const ray3f& ray,
     int bounce, rng_state& rng, const trace_params& params) {
   // YOUR CODE GOES HERE
+
   // intersect next point
-
+  auto intersection = intersect_scene_bvh(scene, ray);
+  if(!intersection.hit)
+    return {zero3f, 1};
   // evaluate geometry
-
+  auto object = scene->objects[intersection.object];
+  auto normal = transform_direction(object->frame,
+    eval_normal(object->shape, intersection.element, intersection.uv));
   // evaluate material
-
   // add simple shading
-  return {zero3f, 1};
+  return {object->material->color * dot(normal, -ray.d),1};
 }
 
 static vec4f trace_normal(const rtr::scene* scene, const ray3f& ray, 
