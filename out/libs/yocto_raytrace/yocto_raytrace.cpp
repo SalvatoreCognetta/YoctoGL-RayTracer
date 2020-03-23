@@ -124,11 +124,17 @@ static vec3f eval_texture(const rtr::texture* texture, const vec2f& uv,
 
   // YOUR CODE GOES HERE
   // get coordinates normalized for tiling
-
+  auto s = fmod(uv.x, 1) * size.x, t = fmod(uv.y, 1) * size.y;
+  if (s < 0) s += size.x; if (t < 0) t += size.y;
   // get image coordinates and residuals
-
+  auto i=clamp((int)s,0,size.x-1), j=clamp((int)t,0,size.y-1);
+  auto ii = (i + 1) % size.x, jj = (j + 1) % size.y;
+  auto u = s - i, v = t - j;
   // handle interpolation
-  return {1, 1, 1};
+  return lookup_texture(texture, { i, j},ldr_as_linear) * (1 - u) * (1 - v) +
+          lookup_texture(texture,{ i, jj},ldr_as_linear) * (1 - u) * v +
+          lookup_texture(texture,{ii, j},ldr_as_linear) * u * (1 - v) +
+          lookup_texture(texture,{ii, jj},ldr_as_linear) * u * v;
 }
 static float eval_texturef(const rtr::texture* texture, const vec2f& uv,
     bool ldr_as_linear = false) {
@@ -151,7 +157,10 @@ static ray3f eval_camera(const rtr::camera* camera, const vec2f& image_uv) {
 static vec3f eval_position(
     const rtr::shape* shape, int element, const vec2f& uv) {
   // YOUR CODE GOES HERE
-  return zero3f;
+  if (!shape->triangles.empty()) return zero3f;
+  auto t = shape->triangles[element];
+  return interpolate_triangle(shape->positions[t.x],
+          shape->positions[t.y], shape->positions[t.z], uv);
 }
 
 // Shape element normal.
@@ -198,7 +207,18 @@ static vec2f eval_texcoord(
 // Evaluate all environment color.
 static vec3f eval_environment(const rtr::scene* scene, const ray3f& ray) {
   // YOUR CODE GOES HERE
-  return zero3f;
+  vec3f ret = {0,0,0};
+  for (auto environment : scene->environments) {
+    auto local_dir = transform_direction(
+                        inverse(environment->frame), ray.d);
+    auto texcoord = vec2f{
+                      static_cast<float>(atan2(local_dir.z, local_dir.x) / (2 * yocto::math::pi)),
+                      static_cast<float>(acos(clamp(local_dir.y, -1.f, 1.f)) / yocto::math::pi)};
+    if (texcoord.x < 0) texcoord.x += 1;
+    ret += environment->emission *
+            eval_texture(environment->emission_tex, texcoord);
+  }
+  return ret;
 }
 
 }  // namespace yocto::raytrace
@@ -580,7 +600,9 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
   // YOUR CODE GOES HERE
 
   // intersect next point
-
+  auto intersection = intersect_scene_bvh(scene, ray);
+  if(!intersection.hit)
+    return {zero3f, 1};
   // evaluate geometry
 
   // normal corrections
@@ -608,7 +630,6 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
 static vec4f trace_eyelight(const rtr::scene* scene, const ray3f& ray,
     int bounce, rng_state& rng, const trace_params& params) {
   // YOUR CODE GOES HERE
-
   // intersect next point
   auto intersection = intersect_scene_bvh(scene, ray);
   if(!intersection.hit)
@@ -625,7 +646,6 @@ static vec4f trace_eyelight(const rtr::scene* scene, const ray3f& ray,
 static vec4f trace_normal(const rtr::scene* scene, const ray3f& ray, 
     int bounce, rng_state& rng, const trace_params& params) {
   // YOUR CODE GOES HERE
-
   // intersect next point
   auto intersection = intersect_scene_bvh(scene, ray);
   if(!intersection.hit)
