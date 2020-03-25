@@ -646,9 +646,11 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
   // get textcoords
   auto texcoord = eval_texcoord(object->shape, intersection.element, intersection.uv);
 
+  texcoord = {fmod(texcoord.x,1), fmod(texcoord.y,1)};
+
   // normal corrections
   auto outgoing = -ray.d;
-  if (dot(outgoing, normal) < 0)
+  if (dot(normal,outgoing) < 0)
     normal = -normal;
 
   // evaluate material
@@ -675,6 +677,8 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
 
   // handle opacity
   if(rand1f(rng) > opacity) {
+    position = normalize(position);
+
     return trace_raytrace(scene, ray3f{position, outgoing},
                           bounce+1, rng, params);
   }
@@ -683,11 +687,11 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
   auto radiance = emission; //object->material->emission;
 
   // exit if enough bounces are done
-  if(bounce >= 1) return {radiance,1};
+  if(bounce >= params.bounces) return {radiance,1};
 
   // compute indirect illumination
   // transmission -> polished dielectric
-  if (transmission) { 
+  if (object->material->transmission) { 
     // <handle polished dielectrics> 
     if(rand1f(rng) < fresnel_schlick(vec3f{0.04}, normal, outgoing).x) {
       auto incoming = reflect(outgoing, normal);
@@ -706,7 +710,7 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
     }
   }
   // metallic && !roughness -> polished metal
-  else if (metallic && !roughness) {     
+  else if (object->material->metallic && !object->material->roughness) {     
     // <handle polished metals> 
     auto incoming = reflect(outgoing, normal);
     auto ray_temp = trace_raytrace(scene, ray3f{position, incoming},
@@ -717,7 +721,7 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
   }  
   // metallic &&  roughness -> rough metal 
   // please update roughness as roughness = roughness * roughness;
-  else if (metallic && roughness) { 
+  else if (object->material->metallic && object->material->roughness) { 
     // <handle rough metals> 
     auto incoming = sample_hemisphere(normal, rand2f(rng));
     auto halfway = normalize(outgoing + incoming);
@@ -732,7 +736,7 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
               shade * dot(normal, incoming);
   }
   // specular -> rough plastic 
-  else if (specular) { 
+  else if (object->material->specular) { 
     // <handle rough plastic> 
     auto incoming = sample_hemisphere(normal, rand2f(rng));
     auto halfway = normalize(outgoing + incoming);
@@ -751,7 +755,7 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
     auto incoming = sample_hemisphere(normal, rand2f(rng));
     auto ray_temp = trace_raytrace(scene, ray3f{position, incoming},bounce+1, rng, params);
     vec3f shade = {ray_temp.x, ray_temp.y, ray_temp.z};
-    radiance += (2 * yocto::math::pi) * color / yocto::math::pi *
+    radiance += (2 * math::pi) * (color / math::pi) *
                 shade * dot(normal, incoming);
   }
 
