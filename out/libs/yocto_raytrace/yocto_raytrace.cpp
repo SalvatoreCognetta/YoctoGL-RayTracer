@@ -664,16 +664,12 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
                    eval_texture(object->material->roughness_tex, texcoord, true).x;
                    
   auto color = object->material->color *
-                eval_texture(object->material->color_tex, texcoord, true);
+                eval_texture(object->material->color_tex, texcoord, false);
 
-  // auto ior  = object->material->ior;
-  // auto coat = object->material->coat *
-  //             eval_texture(object->material->coat_tex, texcoord, true).x;
   auto transmission = object->material->transmission *
                       eval_texture(object->material->emission_tex, texcoord, true).x;
   auto opacity = object->material->opacity *
                  mean(eval_texture(object->material->opacity_tex, texcoord, true));
-  auto thin = object->material->thin || !object->material->transmission;
 
   // handle opacity
   if(rand1f(rng) > opacity) {
@@ -706,7 +702,6 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
                                     bounce+1, rng, params);
       vec3f shade = {ray_temp.x, ray_temp.y, ray_temp.z};
       radiance += color *shade;
-                    
     }
   }
   // metallic && !roughness -> polished metal
