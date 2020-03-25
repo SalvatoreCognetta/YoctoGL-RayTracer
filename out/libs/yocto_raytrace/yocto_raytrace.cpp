@@ -157,10 +157,20 @@ static ray3f eval_camera(const rtr::camera* camera, const vec2f& image_uv) {
 static vec3f eval_position(
     const rtr::shape* shape, int element, const vec2f& uv) {
   // YOUR CODE GOES HERE
-  if (!shape->triangles.empty()) return zero3f;
-  auto t = shape->triangles[element];
-  return interpolate_triangle(shape->positions[t.x],
-          shape->positions[t.y], shape->positions[t.z], uv);
+  if (!shape->triangles.empty()) {
+    auto t = shape->triangles[element];
+    // interpolate_line
+    return interpolate_triangle(shape->positions[t.x],
+            shape->positions[t.y], shape->positions[t.z], uv);
+  } else if (!shape->lines.empty()) {
+    auto l = shape->lines[element];
+    return interpolate_line(
+      shape->positions[l.x], shape->positions[l.y], uv.x);
+  } else if (!shape->points.empty()) {
+    return {0, 0, 1};
+  } else {
+    return {0, 0, 0};
+  }
 }
 
 // Shape element normal.
@@ -184,10 +194,22 @@ static vec3f eval_normal(
     const rtr::shape* shape, int element, const vec2f& uv) {
   if (shape->normals.empty()) return eval_element_normal(shape, element);
   // YOUR CODE GOES HERE
-  auto t = shape->triangles[element];
-  return normalize(interpolate_triangle(
-    shape->normals[t.x], shape->normals[t.y],
-    shape->normals[t.z], uv));
+  if (!shape->triangles.empty()) {
+    auto t = shape->triangles[element];
+    // interpolate_linetangent
+    return normalize(interpolate_triangle(
+      shape->normals[t.x], shape->normals[t.y],
+      shape->normals[t.z], uv));
+  } else if (!shape->lines.empty()) {
+    auto l = shape->lines[element];
+    return normalize(interpolate_line(
+      shape->normals[l.x], shape->normals[l.y], uv.x));
+    // return line_tangent(shape->positions[l.x], shape->positions[l.y]);
+  } else if (!shape->points.empty()) {
+    return {0, 0, 1};
+  } else {
+    return {0, 0, 0};
+  }
 }
 
 // Eval texcoord
@@ -195,19 +217,28 @@ static vec2f eval_texcoord(
     const rtr::shape* shape, int element, const vec2f& uv) {
   if (shape->texcoords.empty()) return uv;
   // YOUR CODE GOES HERE
-  auto t = shape->triangles[element];
-  auto ret = interpolate_triangle(
-    shape->texcoords[t.x], shape->texcoords[t.y], shape->texcoords[t.z], uv);
-
-  ret = {fmod(ret.x, 1), fmod(ret.y, 1)};
-  return ret;
-
+  if (!shape->triangles.empty()) {
+    
+    auto t = shape->triangles[element];
+    // interpolate_line
+    return interpolate_triangle(
+      shape->texcoords[t.x], shape->texcoords[t.y], shape->texcoords[t.z], uv);
+  } else if (!shape->lines.empty()) {
+    auto l = shape->lines[element];
+    return interpolate_line(
+      shape->texcoords[l.x], shape->texcoords[l.y], uv.x);
+    // return line_tangent(shape->positions[l.x], shape->positions[l.y]);
+  } else if (!shape->points.empty()) {
+    return {0, 1};
+  } else {
+    return {0, 0};
+  }
 }
 
 // Evaluate all environment color.
 static vec3f eval_environment(const rtr::scene* scene, const ray3f& ray) {
   // YOUR CODE GOES HERE
-  vec3f ret = {0,0,0};
+  vec3f ret = vec3f{0,0,0};
   for (auto environment : scene->environments) {
     auto local_dir = transform_direction(
                         inverse(environment->frame), ray.d);
@@ -602,28 +633,130 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
   // intersect next point
   auto intersection = intersect_scene_bvh(scene, ray);
   if(!intersection.hit)
-    return {zero3f, 1};
+    return {eval_environment(scene, ray),1};
+
   // evaluate geometry
+  auto object = scene->objects[intersection.object];
+  // get position
+  auto position = transform_point(object->frame,
+                   eval_position(object->shape, intersection.element, intersection.uv));
+  // get normal
+  auto normal = transform_direction(object->frame,
+    eval_normal(object->shape, intersection.element, intersection.uv));
+  // get textcoords
+  auto texcoord = eval_texcoord(object->shape, intersection.element, intersection.uv);
 
   // normal corrections
+  auto outgoing = -ray.d;
+  if (dot(outgoing, normal) < 0)
+    normal = -normal;
 
   // evaluate material
+  auto emission = object->material->emission *
+                  eval_texture(object->material->emission_tex, texcoord, false);
+  auto specular = object->material->specular *
+                  eval_texture(object->material->specular_tex, texcoord, true).x;
+  auto metallic = object->material->metallic *
+                  eval_texture(object->material->metallic_tex, texcoord, true).x;
+  auto roughness = object->material->roughness *
+                   eval_texture(object->material->roughness_tex, texcoord, true).x;
+                   
+  auto color = object->material->color *
+                eval_texture(object->material->color_tex, texcoord, true);
+
+  // auto ior  = object->material->ior;
+  // auto coat = object->material->coat *
+  //             eval_texture(object->material->coat_tex, texcoord, true).x;
+  auto transmission = object->material->transmission *
+                      eval_texture(object->material->emission_tex, texcoord, true).x;
+  auto opacity = object->material->opacity *
+                 mean(eval_texture(object->material->opacity_tex, texcoord, true));
+  auto thin = object->material->thin || !object->material->transmission;
 
   // handle opacity
+  if(rand1f(rng) > opacity) {
+    return trace_raytrace(scene, ray3f{position, outgoing},
+                          bounce+1, rng, params);
+  }
 
   // accumulate emission
+  auto radiance = emission; //object->material->emission;
 
   // exit if enough bounces are done
+  if(bounce >= 1) return {radiance,1};
 
   // compute indirect illumination
   // transmission -> polished dielectric
+  if (transmission) { 
+    // <handle polished dielectrics> 
+    if(rand1f(rng) < fresnel_schlick(vec3f{0.04}, normal, outgoing).x) {
+      auto incoming = reflect(outgoing, normal);
+      auto ray_temp = trace_raytrace(scene, ray3f{position, incoming},
+                    bounce+1, rng, params);
+      vec3f shade = {ray_temp.x, ray_temp.y, ray_temp.z};
+    
+      radiance += shade;
+    } else {
+      auto incoming = -outgoing;
+      auto ray_temp = trace_raytrace(scene, ray3f{position, incoming},
+                                    bounce+1, rng, params);
+      vec3f shade = {ray_temp.x, ray_temp.y, ray_temp.z};
+      radiance += color *shade;
+                    
+    }
+  }
   // metallic && !roughness -> polished metal
-  // metallic &&  roughness -> rough metal please update roughness as roughness = roughness * roughness;
-  // specular -> rough plastic
-  // else -> diffuse
+  else if (metallic && !roughness) {     
+    // <handle polished metals> 
+    auto incoming = reflect(outgoing, normal);
+    auto ray_temp = trace_raytrace(scene, ray3f{position, incoming},
+                                bounce+1, rng, params);
+    vec3f shade = {ray_temp.x, ray_temp.y, ray_temp.z};
+    radiance += fresnel_schlick(color, normal, outgoing)*
+                  shade;
+  }  
+  // metallic &&  roughness -> rough metal 
+  // please update roughness as roughness = roughness * roughness;
+  else if (metallic && roughness) { 
+    // <handle rough metals> 
+    auto incoming = sample_hemisphere(normal, rand2f(rng));
+    auto halfway = normalize(outgoing + incoming);
+    auto ray_temp = trace_raytrace(scene, ray3f{position, incoming},
+                              bounce+1, rng, params);
+    vec3f shade = {ray_temp.x, ray_temp.y, ray_temp.z};
+    radiance += (2 * yocto::math::pi) *
+              fresnel_schlick(color, halfway, outgoing) *
+              microfacet_distribution(roughness, normal, halfway) *
+              microfacet_shadowing(roughness,normal,halfway,outgoing,incoming) /
+              (4 * dot(normal, outgoing) * dot(normal, incoming)) *
+              shade * dot(normal, incoming);
+  }
+  // specular -> rough plastic 
+  else if (specular) { 
+    // <handle rough plastic> 
+    auto incoming = sample_hemisphere(normal, rand2f(rng));
+    auto halfway = normalize(outgoing + incoming);
+    auto ray_temp = trace_raytrace(scene, ray3f{position, incoming},
+                                bounce+1, rng, params);
+    vec3f shade = {ray_temp.x, ray_temp.y, ray_temp.z};
+    radiance += (2 * yocto::math::pi) * (
+                color / yocto::math::pi * (1 - fresnel_schlick(vec3f{0.04},halfway,outgoing)) +
+                fresnel_schlick(vec3f{0.04}, halfway, outgoing) *
+                microfacet_distribution(roughness, normal, halfway) *
+                microfacet_shadowing(roughness,normal,halfway,outgoing,incoming) /
+                (4 * dot(normal, outgoing) * dot(normal, incoming))) *
+                shade * dot(normal, incoming);
+  } else { 
+    // <handle diffuse> 
+    auto incoming = sample_hemisphere(normal, rand2f(rng));
+    auto ray_temp = trace_raytrace(scene, ray3f{position, incoming},bounce+1, rng, params);
+    vec3f shade = {ray_temp.x, ray_temp.y, ray_temp.z};
+    radiance += (2 * yocto::math::pi) * color / yocto::math::pi *
+                shade * dot(normal, incoming);
+  }
 
   // done
-  return {zero3f, 1};
+  return {radiance, 1};
 }
 
 // Eyelight for quick previewing.
@@ -667,10 +800,11 @@ static vec4f trace_texcoord(const rtr::scene* scene, const ray3f& ray,
     return {zero3f, 1};
   // prepare shading point
   auto object = scene->objects[intersection.object];
+  // {fmod(ret.x, 1), fmod(ret.y, 1)};
   vec3f tex_coord = {eval_texcoord(object->shape, intersection.element, intersection.uv),0};
   // auto normal = transform_direction(object->frame,tex_coord);
   // return texcoord in xy
-  return {tex_coord, 1};
+  return {fmod(tex_coord.x,1), fmod(tex_coord.y,1),0, 1};
 }
 
 static vec4f trace_color(const rtr::scene* scene, const ray3f& ray, 
@@ -974,7 +1108,7 @@ void set_transmission(rtr::material* material, float transmission, bool thin,
 void set_thin(rtr::material* material, bool thin) { material->thin = thin; }
 void set_roughness(
     rtr::material* material, float roughness, rtr::texture* roughness_tex) {
-  material->roughness     = roughness;
+  material->roughness     = roughness * roughness;
   material->roughness_tex = roughness_tex;
 }
 void set_opacity(
