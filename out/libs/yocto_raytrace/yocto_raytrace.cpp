@@ -204,7 +204,6 @@ static vec3f eval_normal(
     auto l = shape->lines[element];
     return normalize(interpolate_line(
       shape->normals[l.x], shape->normals[l.y], uv.x));
-    // return line_tangent(shape->positions[l.x], shape->positions[l.y]);
   } else if (!shape->points.empty()) {
     return {0, 0, 1};
   } else {
@@ -227,7 +226,6 @@ static vec2f eval_texcoord(
     auto l = shape->lines[element];
     return interpolate_line(
       shape->texcoords[l.x], shape->texcoords[l.y], uv.x);
-    // return line_tangent(shape->positions[l.x], shape->positions[l.y]);
   } else if (!shape->points.empty()) {
     return {0, 1};
   } else {
@@ -650,7 +648,7 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
 
   // normal corrections
   auto outgoing = -ray.d;
-  if (dot(normal,outgoing) < 0)
+  if (dot(outgoing, normal) < 0)
     normal = -normal;
 
   // evaluate material
@@ -669,25 +667,23 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
   auto transmission = object->material->transmission *
                       eval_texture(object->material->emission_tex, texcoord, true).x;
   auto opacity = object->material->opacity *
-                 mean(eval_texture(object->material->opacity_tex, texcoord, true));
-
-  // handle opacity
-  if(rand1f(rng) > opacity) {
-    position = normalize(position);
-
-    return trace_raytrace(scene, ray3f{position, outgoing},
-                          bounce+1, rng, params);
-  }
+                 mean(eval_texture(object->material->opacity_tex, texcoord, true));//change to false
 
   // accumulate emission
   auto radiance = emission; //object->material->emission;
+
+  // handle opacity
+  if(rand1f(rng) > eval_texture(object->material->opacity_tex, texcoord, false).x) {
+    return trace_raytrace(scene, ray3f{position, -outgoing},
+                          bounce+1, rng, params);
+  } 
 
   // exit if enough bounces are done
   if(bounce >= params.bounces) return {radiance,1};
 
   // compute indirect illumination
   // transmission -> polished dielectric
-  if (object->material->transmission) { 
+  if (transmission) { 
     // <handle polished dielectrics> 
     if(rand1f(rng) < fresnel_schlick(vec3f{0.04}, normal, outgoing).x) {
       auto incoming = reflect(outgoing, normal);
@@ -705,7 +701,7 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
     }
   }
   // metallic && !roughness -> polished metal
-  else if (object->material->metallic && !object->material->roughness) {     
+  else if (metallic && !roughness) {     
     // <handle polished metals> 
     auto incoming = reflect(outgoing, normal);
     auto ray_temp = trace_raytrace(scene, ray3f{position, incoming},
@@ -716,7 +712,7 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
   }  
   // metallic &&  roughness -> rough metal 
   // please update roughness as roughness = roughness * roughness;
-  else if (object->material->metallic && object->material->roughness) { 
+  else if (metallic && roughness) { 
     // <handle rough metals> 
     auto incoming = sample_hemisphere(normal, rand2f(rng));
     auto halfway = normalize(outgoing + incoming);
@@ -731,7 +727,7 @@ static vec4f trace_raytrace(const rtr::scene* scene, const ray3f& ray,
               shade * dot(normal, incoming);
   }
   // specular -> rough plastic 
-  else if (object->material->specular) { 
+  else if (specular) { 
     // <handle rough plastic> 
     auto incoming = sample_hemisphere(normal, rand2f(rng));
     auto halfway = normalize(outgoing + incoming);
