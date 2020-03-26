@@ -202,8 +202,8 @@ static vec3f eval_normal(
       shape->normals[t.z], uv));
   } else if (!shape->lines.empty()) {
     auto l = shape->lines[element];
-    return normalize(interpolate_line(
-      shape->normals[l.x], shape->normals[l.y], uv.x));
+    return normalize(line_tangent(
+      shape->normals[l.x], shape->normals[l.y]));
   } else if (!shape->points.empty()) {
     return {0, 0, 1};
   } else {
